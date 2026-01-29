@@ -196,8 +196,5 @@ When you pop a group, every popped normal block checks its 4-neighbors (up/down/
 - Visual polish (particles, animations, tweened drops) is minimal; hooking into `toPop` and `UpdateGrid` events is the best place to inject VFX.
 - Board data is stored in-memory only; consider ScriptableObjects for level definitions or saving progress if shipping.
 
-## License
-No license file is included. Treat this as a private learning project unless the author adds an explicit license.
-
 
 
