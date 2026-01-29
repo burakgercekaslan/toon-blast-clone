@@ -154,7 +154,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   M: 10
   N: 10
-  K: 6
+  K: 4
   A: 2
   B: 4
   C: 6
@@ -168,6 +168,7 @@ MonoBehaviour:
   - {fileID: 5630620936138428424, guid: 668f28f3a77fd2949a802cd977b7bece, type: 3}
   - {fileID: 3423852123074452527, guid: 96e182ab910253f4eb992f92f22dc34d, type: 3}
   - {fileID: 8728633845390695754, guid: adf8d322a3d22d248ab456b71de81941, type: 3}
+  BoxPrefab: {fileID: 8728633845390695754, guid: 7b5d81e78c54d79448fc42549ec6de22, type: 3}
   Cubes: {fileID: 1961084193}
   Ground: {fileID: 1070281659}
   BlockSprites:
@@ -195,6 +196,9 @@ MonoBehaviour:
   - {fileID: 21300000, guid: 876e5f4018b3631458b71abea564c9e8, type: 3}
   - {fileID: 21300000, guid: 39b46808df07a714b84dbcf21413af91, type: 3}
   - {fileID: 21300000, guid: f1c02c1b48ca70a45aabd153e642774e, type: 3}
+  Box1Sprite: {fileID: 21300000, guid: a09b1f9095a1bc940901339b75b80f58, type: 3}
+  Box0Sprite: {fileID: 21300000, guid: cd2679ed408b734458c16b326f97d5d3, type: 3}
+  InitialBoxRows: 2
 --- !u!4 &297763303
 Transform:
   m_ObjectHideFlags: 0

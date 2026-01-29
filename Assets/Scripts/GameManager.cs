@@ -8,13 +8,18 @@ public class GameManager : MonoBehaviour
     [SerializeField] private AudioSource PopAudio,ShuffleAudio;
     [SerializeField] private GameObject Borders; 
     [SerializeField] private GameObject[] DefaultCubes; // prefabrics for default cubes.
+    [SerializeField] private GameObject BoxPrefab;
     [SerializeField] private Transform Cubes; // transform to make it easy for checking blocks.
     [SerializeField] private GameObject Ground;//invisible ground making blocks not to fall.
     [SerializeField] private Sprite[] BlockSprites; // all block sprites ordered.
+    [SerializeField] private Sprite Box1Sprite;
+    [SerializeField] private Sprite Box0Sprite;
+    [SerializeField] private int InitialBoxRows = 2;
     public static Dictionary<Vector2Int, GameObject> DictofBlocks = new Dictionary<Vector2Int, GameObject>(); // all positions of block (x,y) and corresponding GameObject(block).
     public static List <GameObject> toPop = new List<GameObject>(); // static list to hold elements to destroy.
     private static List<GameObject> toChange = new List<GameObject>(); // static list to hold elements to change (and also used for checking how much moves is available).
     public static int maxTogetherCount = 0;
+    private BlockFactory _blockFactory;
     // Start is called before the first frame update.
     void Start()
     {
@@ -27,7 +32,10 @@ public class GameManager : MonoBehaviour
         {
             Borders.transform.localScale = new Vector3(15, M / 2f, 0); // orient borders. 
         }
+
+        _blockFactory = new BlockFactory(this, DefaultCubes, BoxPrefab, Cubes, Box1Sprite, Box0Sprite);
         InitializeGrid(M, N, K);
+        InitializeBoxes();
         AfterBoardChanged();
     }
 
@@ -46,6 +54,7 @@ public class GameManager : MonoBehaviour
                 PopAudio.Play();
             }
 
+            DamageAdjacentBoxes(toPop);
             DestroyList();
             UpdateDict();
             UpdateGrid();
@@ -59,8 +68,7 @@ public class GameManager : MonoBehaviour
         ChangeSprites();
         CheckAvailableMoves();
 
-        int shuffleSafety = 0;
-        while (maxTogetherCount == 1 && shuffleSafety++ < 3)
+        if (maxTogetherCount == 1)
         {
             ShuffleDeck();
             ChangeSprites();
@@ -68,21 +76,69 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    private void createBox(int startingX, int startingY, int x, int y, int droppingHeight)
+    {
+        if (_blockFactory == null)
+        {
+            return;
+        }
+
+        var box = _blockFactory.CreateBox(startingX, startingY, x, y, droppingHeight);
+        if (box == null)
+        {
+            return;
+        }
+
+        DictofBlocks[new Vector2Int(x, y)] = box;
+    }
+
     private void createBlock(int startingX, int startingY, int x, int y, int color, int droppingHeight) // function to create block GameObjects.
     {
-        var block = Instantiate(DefaultCubes[color], new Vector2((startingX + x * 2) * 0.225f, (startingY + y * 2) * 0.225f + droppingHeight), Quaternion.identity);
-        block.GetComponent<SpriteRenderer>().sortingOrder = y; // to better look objects on top should be on front.
-        block.AddComponent<BoxCollider2D>();
-        block.GetComponentInChildren<BoxCollider2D>().size = new Vector2(2, 2.25f);
-        block.transform.SetParent(Cubes);
-        var blockComponent = block.AddComponent<Block>(); // adding block script to all blocks.
-        blockComponent.x = x;
-        blockComponent.y = y;
-        blockComponent.color = color;
-        blockComponent.SetGameManager(this);
-        block.name = x.ToString() + "." + y.ToString();
-        block.tag = "Block";
+        if (_blockFactory == null)
+        {
+            return;
+        }
+
+        var block = _blockFactory.CreateNormalBlock(startingX, startingY, x, y, color, droppingHeight);
+        if (block == null)
+        {
+            return;
+        }
+
         DictofBlocks.Add(new Vector2Int(x, y), block);
+    }
+
+    private void InitializeBoxes()
+    {
+        if (BoxPrefab == null)
+        {
+            return;
+        }
+
+        int requestedRows = Mathf.Clamp(InitialBoxRows, 0, M);
+        int boxRows = (M > 3) ? requestedRows : Mathf.Min(1, requestedRows);
+        if (boxRows == 0)
+        {
+            return;
+        }
+
+        int startingX = (-N + 1);
+        int startingY = (-M + 1);
+
+        for (int x = 0; x < N; x++)
+        {
+            for (int y = 0; y < boxRows; y++)
+            {
+                Vector2Int coordinates = new Vector2Int(x, y);
+                if (DictofBlocks.ContainsKey(coordinates))
+                {
+                    Destroy(DictofBlocks[coordinates]);
+                    DictofBlocks.Remove(coordinates);
+                }
+
+                createBox(startingX, startingY, x, y, 0);
+            }
+        }
     }
     private void InitializeGrid(int M, int N, int K)
     {
@@ -101,6 +157,67 @@ public class GameManager : MonoBehaviour
             }
         }
     }
+
+    private static bool IsBox(GameObject obj)
+    {
+        return obj != null && obj.GetComponent<BoxBlock>() != null;
+    }
+
+    private static bool IsNormalBlock(GameObject obj)
+    {
+        return obj != null && obj.GetComponent<Block>() != null;
+    }
+
+    private void DamageAdjacentBoxes(List<GameObject> poppedBlocks)
+    {
+        if (poppedBlocks == null || poppedBlocks.Count == 0)
+        {
+            return;
+        }
+
+        HashSet<BoxBlock> damaged = new HashSet<BoxBlock>();
+        foreach (var popped in poppedBlocks)
+        {
+            if (!IsNormalBlock(popped))
+            {
+                continue;
+            }
+
+            var b = popped.GetComponent<Block>();
+            if (b == null)
+            {
+                continue;
+            }
+
+            Vector2Int p = new Vector2Int(b.x, b.y);
+            Vector2Int[] neighbors =
+            {
+                new Vector2Int(p.x, p.y + 1),
+                new Vector2Int(p.x, p.y - 1),
+                new Vector2Int(p.x - 1, p.y),
+                new Vector2Int(p.x + 1, p.y)
+            };
+
+            foreach (var n in neighbors)
+            {
+                if (!DictofBlocks.ContainsKey(n))
+                {
+                    continue;
+                }
+
+                var box = DictofBlocks[n].GetComponent<BoxBlock>();
+                if (box != null)
+                {
+                    damaged.Add(box);
+                }
+            }
+        }
+
+        foreach (var box in damaged)
+        {
+            box.ApplyDamage(1);
+        }
+    }
     public static void BlockPop(Vector2Int coordinates, int color)
     {
         var Top = new Vector2Int(coordinates.x, coordinates.y + 1); // top of current location
@@ -108,7 +225,7 @@ public class GameManager : MonoBehaviour
         var Left = new Vector2Int(coordinates.x - 1, coordinates.y);// left of current location
         var Right = new Vector2Int(coordinates.x + 1, coordinates.y);// right of current location
 
-        if (DictofBlocks.ContainsKey(Top) && color == DictofBlocks[Top].GetComponent<Block>().color)//checks if this blocks exist first and then check if colors match or not.
+        if (DictofBlocks.ContainsKey(Top) && IsNormalBlock(DictofBlocks[Top]) && color == DictofBlocks[Top].GetComponent<Block>().color)//checks if this blocks exist first and then check if colors match or not.
         {
             if (!toPop.Contains(DictofBlocks[coordinates]))
             {
@@ -121,7 +238,7 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        if (DictofBlocks.ContainsKey(Down) && color == DictofBlocks[Down].GetComponent<Block>().color) // same process for other directions.
+        if (DictofBlocks.ContainsKey(Down) && IsNormalBlock(DictofBlocks[Down]) && color == DictofBlocks[Down].GetComponent<Block>().color) // same process for other directions.
         {
             if (!toPop.Contains(DictofBlocks[coordinates]))
             {
@@ -134,7 +251,7 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        if (DictofBlocks.ContainsKey(Left) && color == DictofBlocks[Left].GetComponent<Block>().color)
+        if (DictofBlocks.ContainsKey(Left) && IsNormalBlock(DictofBlocks[Left]) && color == DictofBlocks[Left].GetComponent<Block>().color)
         {
             if (!toPop.Contains(DictofBlocks[coordinates]))
             {
@@ -147,7 +264,7 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        if (DictofBlocks.ContainsKey(Right) && color == DictofBlocks[Right].GetComponent<Block>().color)
+        if (DictofBlocks.ContainsKey(Right) && IsNormalBlock(DictofBlocks[Right]) && color == DictofBlocks[Right].GetComponent<Block>().color)
         {
             if (!toPop.Contains(DictofBlocks[coordinates]))
             {
@@ -170,7 +287,7 @@ public class GameManager : MonoBehaviour
         {
             toChange.Add(DictofBlocks[coordinates]);
         }
-        if (DictofBlocks.ContainsKey(Top) && color == DictofBlocks[Top].GetComponent<Block>().color)
+        if (DictofBlocks.ContainsKey(Top) && IsNormalBlock(DictofBlocks[Top]) && color == DictofBlocks[Top].GetComponent<Block>().color)
         {
             if (!toChange.Contains(DictofBlocks[coordinates]))
             {
@@ -183,7 +300,7 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        if (DictofBlocks.ContainsKey(Down) && color == DictofBlocks[Down].GetComponent<Block>().color)
+        if (DictofBlocks.ContainsKey(Down) && IsNormalBlock(DictofBlocks[Down]) && color == DictofBlocks[Down].GetComponent<Block>().color)
         {
             if (!toChange.Contains(DictofBlocks[coordinates]))
             {
@@ -196,7 +313,7 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        if (DictofBlocks.ContainsKey(Left) && color == DictofBlocks[Left].GetComponent<Block>().color)
+        if (DictofBlocks.ContainsKey(Left) && IsNormalBlock(DictofBlocks[Left]) && color == DictofBlocks[Left].GetComponent<Block>().color)
         {
             if (!toChange.Contains(DictofBlocks[coordinates]))
             {
@@ -209,7 +326,7 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        if (DictofBlocks.ContainsKey(Right) && color == DictofBlocks[Right].GetComponent<Block>().color)
+        if (DictofBlocks.ContainsKey(Right) && IsNormalBlock(DictofBlocks[Right]) && color == DictofBlocks[Right].GetComponent<Block>().color)
         {
             if (!toChange.Contains(DictofBlocks[coordinates]))
             {
@@ -275,35 +392,62 @@ public class GameManager : MonoBehaviour
     {
         for (int x = 0; x < N; x++)
         {
-            List<GameObject> objects = new List<GameObject>();
-            for(int y = 0;y < M; y++) {
-                Vector2Int coordinates = new Vector2Int(x, y);
-                if (DictofBlocks.ContainsKey(coordinates))
-                {
-                    objects.Add(DictofBlocks[coordinates]); // get all the remaining blocks in column.
-                }    
-            }
-            int index = 0;
-            int nullCounter = 0;
-            for (int y = 0; y<M; y++)
+            int startY = 0;
+            while (startY < M)
             {
-                Vector2Int coordinates = new Vector2Int(x, y);
-                if (!DictofBlocks.ContainsKey(coordinates))
+                int endYExclusive = M;
+                for (int y = startY; y < M; y++)
                 {
-                    nullCounter++; // when null we need to drop the y coordinate of the blocks above it. 
+                    Vector2Int c = new Vector2Int(x, y);
+                    if (DictofBlocks.ContainsKey(c) && IsBox(DictofBlocks[c]))
+                    {
+                        endYExclusive = y;
+                        break;
+                    }
                 }
-                else
+
+                List<GameObject> segmentBlocks = new List<GameObject>();
+                for (int y = startY; y < endYExclusive; y++)
                 {
-                    DictofBlocks.Remove(coordinates); // remove from dict starting from bottom to reorder them. 
-                    Vector2Int new_coordinates = new Vector2Int(x, y-nullCounter); // add to the dict again with corrected coordinates.
-                    DictofBlocks.Add(new_coordinates, objects[index++]);//getting the blocks from objects list.
-                    DictofBlocks[new_coordinates].GetComponent<Block>().x = new_coordinates.x;
-                    DictofBlocks[new_coordinates].GetComponent<Block>().y = new_coordinates.y;
-                    DictofBlocks[new_coordinates].GetComponent<Block>().name = new_coordinates.x.ToString() + "." + new_coordinates.y.ToString();
-                    DictofBlocks[new_coordinates].GetComponent<SpriteRenderer>().sortingOrder = new_coordinates.y;
+                    Vector2Int c = new Vector2Int(x, y);
+                    if (DictofBlocks.ContainsKey(c) && IsNormalBlock(DictofBlocks[c]))
+                    {
+                        segmentBlocks.Add(DictofBlocks[c]);
+                    }
                 }
+
+                for (int y = startY; y < endYExclusive; y++)
+                {
+                    Vector2Int c = new Vector2Int(x, y);
+                    if (DictofBlocks.ContainsKey(c) && IsNormalBlock(DictofBlocks[c]))
+                    {
+                        DictofBlocks.Remove(c);
+                    }
+                }
+
+                int writeY = startY;
+                foreach (var obj in segmentBlocks)
+                {
+                    Vector2Int newPos = new Vector2Int(x, writeY++);
+                    DictofBlocks[newPos] = obj;
+                    var b = obj.GetComponent<Block>();
+                    b.x = newPos.x;
+                    b.y = newPos.y;
+                    obj.name = newPos.x.ToString() + "." + newPos.y.ToString();
+                    var renderer = obj.GetComponent<SpriteRenderer>();
+                    if (renderer != null)
+                    {
+                        renderer.sortingOrder = newPos.y;
+                    }
+                }
+
+                if (endYExclusive == M)
+                {
+                    break;
+                }
+
+                startY = endYExclusive + 1;
             }
-            objects.Clear();// clear the list for next column.
         }
     }
     private void UpdateGrid() // create additional blocks if there are some gaps in the grid.
@@ -312,13 +456,25 @@ public class GameManager : MonoBehaviour
         int startingY = (-M + 1);
         for (int x = 0; x < N; x++)
         {
-            for (int y = 0;y < M; y++)
+            int highestBoxY = -1;
+            for (int y = M - 1; y >= 0; y--)
+            {
+                Vector2Int c = new Vector2Int(x, y);
+                if (DictofBlocks.ContainsKey(c) && IsBox(DictofBlocks[c]))
+                {
+                    highestBoxY = y;
+                    break;
+                }
+            }
+
+            int spawnStartY = highestBoxY + 1;
+            for (int y = spawnStartY; y < M; y++)
             {
                 Vector2Int coordinates = new Vector2Int(x, y);
-                if (!DictofBlocks.ContainsKey(coordinates)){ // if there is not any blocks in given coordinates, create one.
+                if (!DictofBlocks.ContainsKey(coordinates))
+                {
                     int r = UnityEngine.Random.Range(0, K);
                     createBlock(startingX, startingY, x, y, r, 5);
-
                 }
             }
         }
@@ -329,6 +485,10 @@ public class GameManager : MonoBehaviour
         for (int x = 0; x < N; x++) { 
             for (int y = 0; y < M; y++) {
                 Vector2Int coordinates = new Vector2Int(x,y);
+                if (!DictofBlocks.ContainsKey(coordinates) || !IsNormalBlock(DictofBlocks[coordinates]))
+                {
+                    continue;
+                }
                 int color = DictofBlocks[coordinates].GetComponent<Block>().color;
                 if (!visited.Contains(DictofBlocks[coordinates])){ // if it is not checked before.
                     BlockChange(coordinates, color); // makes toChange list a list of grouped objects.
@@ -378,6 +538,10 @@ public class GameManager : MonoBehaviour
             for (int y = 0; y < M; y++)
             {
                 Vector2Int coordinates = new Vector2Int(x, y);
+                if (!DictofBlocks.ContainsKey(coordinates) || !IsNormalBlock(DictofBlocks[coordinates]))
+                {
+                    continue;
+                }
                 int color = DictofBlocks[coordinates].GetComponent<Block>().color;
                 if (!visited.Contains(DictofBlocks[coordinates]))// if it is not checked before.
                 {
@@ -398,30 +562,14 @@ public class GameManager : MonoBehaviour
     private void ShuffleDeck() // shuffling algorith which removes the top half of the grid and create the transpose of the bottom half to the top. That way there is always multiple moves to play when shuffled.
     {
         PlayShuffleAudioCall();
-        int deleteUntilRow = M - M / 2;
-        for (int x = 0;x < N; x++)
+
+        MoveFinder.ShuffleColorsInPlace(DictofBlocks);
+        var moveFinder = new MoveFinder(new BoardState(DictofBlocks), N, M);
+        if (!moveFinder.HasPlayableMove())
         {
-            List<int> colors = new List<int>();
-            int index = 0;
-            int indexofy = deleteUntilRow-1; // y coordinate of blocks on top after destroying top half.
-            for (int y = M-1; y >= deleteUntilRow; y--)
-            {
-                Vector2Int coordinates = new Vector2Int (x, y);
-                colors.Add(DictofBlocks[new Vector2Int(x, indexofy--)].GetComponent<Block>().color); // simultaneously get the colors of bottom half to transpose it after.
-                if (DictofBlocks.ContainsKey(coordinates))
-                {
-                    Destroy(DictofBlocks[coordinates]); // destroy the block.
-                    DictofBlocks.Remove(coordinates); // delete from dictionary.
-                }
-            }
-            for (int y = deleteUntilRow; y < M; y++) // to create the transpose.
-            {
-                int startingX = (-N + 1);
-                int startingY = (-M + 1);
-                int r = colors[index++]; // get the colors from top to bottom.
-                createBlock(startingX, startingY, x, y, r, 5);
-            }
+            moveFinder.TryForceCreateMove();
         }
+
         maxTogetherCount = 0; // reset maxTogetherCount
     }
 
