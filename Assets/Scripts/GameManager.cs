@@ -15,7 +15,10 @@ public class GameManager : MonoBehaviour
     [SerializeField] private Sprite[] BlockSprites; // all block sprites ordered.
     [SerializeField] private Sprite Box1Sprite;
     [SerializeField] private Sprite Box0Sprite;
-    [SerializeField] private int InitialBoxRows = 2;
+    [SerializeField] private bool UseSelectedBoxRows;
+    [SerializeField] private bool UseSelectedBoxColumns;
+    [SerializeField] private bool[] SelectedBoxRows;
+    [SerializeField] private bool[] SelectedBoxColumns;
     public static Dictionary<Vector2Int, GameObject> DictofBlocks = new Dictionary<Vector2Int, GameObject>(); // all positions of block (x,y) and corresponding GameObject(block).
     public static List <GameObject> toPop = new List<GameObject>(); // static list to hold elements to destroy.
     private static List<GameObject> toChange = new List<GameObject>(); // static list to hold elements to change (and also used for checking how much moves is available).
@@ -28,6 +31,32 @@ public class GameManager : MonoBehaviour
 
     private bool _inputLocked;
     private Coroutine _unlockRoutine;
+
+    private void OnValidate()
+    {
+        int rowCount = Mathf.Max(0, M);
+        int columnCount = Mathf.Max(0, N);
+
+        if (SelectedBoxRows == null || SelectedBoxRows.Length != rowCount)
+        {
+            bool[] resized = new bool[rowCount];
+            if (SelectedBoxRows != null)
+            {
+                Array.Copy(SelectedBoxRows, resized, Mathf.Min(SelectedBoxRows.Length, resized.Length));
+            }
+            SelectedBoxRows = resized;
+        }
+
+        if (SelectedBoxColumns == null || SelectedBoxColumns.Length != columnCount)
+        {
+            bool[] resized = new bool[columnCount];
+            if (SelectedBoxColumns != null)
+            {
+                Array.Copy(SelectedBoxColumns, resized, Mathf.Min(SelectedBoxColumns.Length, resized.Length));
+            }
+            SelectedBoxColumns = resized;
+        }
+    }
     // Start is called before the first frame update.
     void Start()
     {
@@ -190,9 +219,47 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        int requestedRows = Mathf.Clamp(InitialBoxRows, 0, M);
-        int boxRows = (M > 3) ? requestedRows : Mathf.Min(1, requestedRows);
-        if (boxRows == 0)
+        HashSet<Vector2Int> boxCoordinates = new HashSet<Vector2Int>();
+
+        bool useSelections = UseSelectedBoxRows || UseSelectedBoxColumns;
+        if (!useSelections)
+        {
+            return;
+        }
+
+        if (UseSelectedBoxRows && SelectedBoxRows != null)
+        {
+            for (int y = 0; y < Mathf.Min(M, SelectedBoxRows.Length); y++)
+            {
+                if (!SelectedBoxRows[y])
+                {
+                    continue;
+                }
+
+                for (int x = 0; x < N; x++)
+                {
+                    boxCoordinates.Add(new Vector2Int(x, y));
+                }
+            }
+        }
+
+        if (UseSelectedBoxColumns && SelectedBoxColumns != null)
+        {
+            for (int x = 0; x < Mathf.Min(N, SelectedBoxColumns.Length); x++)
+            {
+                if (!SelectedBoxColumns[x])
+                {
+                    continue;
+                }
+
+                for (int y = 0; y < M; y++)
+                {
+                    boxCoordinates.Add(new Vector2Int(x, y));
+                }
+            }
+        }
+
+        if (boxCoordinates.Count == 0)
         {
             return;
         }
@@ -200,19 +267,15 @@ public class GameManager : MonoBehaviour
         int startingX = (-N + 1);
         int startingY = (-M + 1);
 
-        for (int x = 0; x < N; x++)
+        foreach (var coordinates in boxCoordinates)
         {
-            for (int y = 0; y < boxRows; y++)
+            if (DictofBlocks.ContainsKey(coordinates))
             {
-                Vector2Int coordinates = new Vector2Int(x, y);
-                if (DictofBlocks.ContainsKey(coordinates))
-                {
-                    Destroy(DictofBlocks[coordinates]);
-                    DictofBlocks.Remove(coordinates);
-                }
-
-                createBox(startingX, startingY, x, y, 0);
+                Destroy(DictofBlocks[coordinates]);
+                DictofBlocks.Remove(coordinates);
             }
+
+            createBox(startingX, startingY, coordinates.x, coordinates.y, 0);
         }
     }
     private void InitializeGrid(int M, int N, int K)

@@ -198,7 +198,13 @@ MonoBehaviour:
   - {fileID: 21300000, guid: f1c02c1b48ca70a45aabd153e642774e, type: 3}
   Box1Sprite: {fileID: 21300000, guid: a09b1f9095a1bc940901339b75b80f58, type: 3}
   Box0Sprite: {fileID: 21300000, guid: cd2679ed408b734458c16b326f97d5d3, type: 3}
-  InitialBoxRows: 2
+  UseSelectedBoxRows: 1
+  UseSelectedBoxColumns: 1
+  SelectedBoxRows: 01010000000000000000
+  SelectedBoxColumns: 00000000000000000101
+  InputLockMinDuration: 0.05
+  InputLockMaxDuration: 1.5
+  SettleVelocityThreshold: 0.01
 --- !u!4 &297763303
 Transform:
   m_ObjectHideFlags: 0
