@@ -1,11 +1,6 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Reflection;
-using Unity.VisualScripting;
 using UnityEngine;
-using static Unity.Collections.AllocatorManager;
 
 public class GameManager : MonoBehaviour
 {
@@ -16,31 +11,60 @@ public class GameManager : MonoBehaviour
     [SerializeField] private Transform Cubes; // transform to make it easy for checking blocks.
     [SerializeField] private GameObject Ground;//invisible ground making blocks not to fall.
     [SerializeField] private Sprite[] BlockSprites; // all block sprites ordered.
-    public static Dictionary<Tuple<int,int>, GameObject> DictofBlocks = new Dictionary<Tuple<int, int>, GameObject>(); // all positions of block (x,y) and corresponding GameObject(block).
+    public static Dictionary<Vector2Int, GameObject> DictofBlocks = new Dictionary<Vector2Int, GameObject>(); // all positions of block (x,y) and corresponding GameObject(block).
     public static List <GameObject> toPop = new List<GameObject>(); // static list to hold elements to destroy.
     private static List<GameObject> toChange = new List<GameObject>(); // static list to hold elements to change (and also used for checking how much moves is available).
     public static int maxTogetherCount = 0;
     // Start is called before the first frame update.
     void Start()
     {
-        Borders.transform.localScale = new Vector3(15,M/2,0); // orient borders. 
-        InitializeGrid(M, N, K);
-        ChangeSprites();
-        CheckAvailableMoves();
-        if (maxTogetherCount == 1)
+        DictofBlocks.Clear();
+        toPop.Clear();
+        toChange.Clear();
+        maxTogetherCount = 0;
+
+        if (Borders != null)
         {
-            ShuffleDeck();
+            Borders.transform.localScale = new Vector3(15, M / 2f, 0); // orient borders. 
         }
+        InitializeGrid(M, N, K);
+        AfterBoardChanged();
     }
 
-    // Update is called once per frame
-    void Update() // this part is mostly for making the game smoother with less bugs.
+    public void OnBlockClicked(Block block)
     {
-        Invoke("ChangeSprites", 0.1f);
-        Invoke("CheckAvailableMoves", 0.1f);
-        if (maxTogetherCount == 1)
+        if (block == null)
         {
-            Invoke("ShuffleDeck", 0.1f);
+            return;
+        }
+
+        BlockPop(new Vector2Int(block.x, block.y), block.color); //calls the blockpop function to make a toPop list which contains the game objects that we should destroy.
+        if (toPop.Count > 0) // If something is going to pop:
+        {
+            if (PopAudio != null)
+            {
+                PopAudio.Play();
+            }
+
+            DestroyList();
+            UpdateDict();
+            UpdateGrid();
+        }
+
+        AfterBoardChanged();
+    }
+
+    private void AfterBoardChanged()
+    {
+        ChangeSprites();
+        CheckAvailableMoves();
+
+        int shuffleSafety = 0;
+        while (maxTogetherCount == 1 && shuffleSafety++ < 3)
+        {
+            ShuffleDeck();
+            ChangeSprites();
+            CheckAvailableMoves();
         }
     }
 
@@ -51,19 +75,23 @@ public class GameManager : MonoBehaviour
         block.AddComponent<BoxCollider2D>();
         block.GetComponentInChildren<BoxCollider2D>().size = new Vector2(2, 2.25f);
         block.transform.SetParent(Cubes);
-        block.AddComponent<Block>(); // adding block script to all blocks.
-        block.GetComponent<Block>().x = x;
-        block.GetComponent<Block>().y = y;
-        block.GetComponent<Block>().color = color;
+        var blockComponent = block.AddComponent<Block>(); // adding block script to all blocks.
+        blockComponent.x = x;
+        blockComponent.y = y;
+        blockComponent.color = color;
+        blockComponent.SetGameManager(this);
         block.name = x.ToString() + "." + y.ToString();
         block.tag = "Block";
-        DictofBlocks.Add(new Tuple<int, int>(x, y), block);
+        DictofBlocks.Add(new Vector2Int(x, y), block);
     }
     private void InitializeGrid(int M, int N, int K)
     {
         int startingX = (-N + 1); //to dynamically allocate grid x position for start
         int startingY = (-M + 1); //to dynamically allocate grid y position for start
-        Ground.transform.position = new Vector2(0, -M * 0.225f-0.25f); // allocating ground for object to not fall.
+        if (Ground != null)
+        {
+            Ground.transform.position = new Vector2(0, (startingY * 0.225f) - 0.25f); // allocating ground for object to not fall.
+        }
         for (int x = 0; x < N; x++)
         {
             for (int y = 0; y < M; y++) 
@@ -73,12 +101,12 @@ public class GameManager : MonoBehaviour
             }
         }
     }
-    public static void BlockPop(Tuple<int, int> coordinates, int color)
+    public static void BlockPop(Vector2Int coordinates, int color)
     {
-        var Top = new Tuple<int, int>(coordinates.Item1, coordinates.Item2 + 1); // top of current location
-        var Down = new Tuple<int, int>(coordinates.Item1, coordinates.Item2 - 1);// bottom of current location
-        var Left = new Tuple<int, int>(coordinates.Item1 - 1, coordinates.Item2);// left of current location
-        var Right = new Tuple<int, int>(coordinates.Item1 + 1, coordinates.Item2);// right of current location
+        var Top = new Vector2Int(coordinates.x, coordinates.y + 1); // top of current location
+        var Down = new Vector2Int(coordinates.x, coordinates.y - 1);// bottom of current location
+        var Left = new Vector2Int(coordinates.x - 1, coordinates.y);// left of current location
+        var Right = new Vector2Int(coordinates.x + 1, coordinates.y);// right of current location
 
         if (DictofBlocks.ContainsKey(Top) && color == DictofBlocks[Top].GetComponent<Block>().color)//checks if this blocks exist first and then check if colors match or not.
         {
@@ -89,7 +117,7 @@ public class GameManager : MonoBehaviour
             if (!toPop.Contains(DictofBlocks[Top])) //for not adding another block second time while searching simultaneously.
             {
                 toPop.Add(DictofBlocks[Top]);
-                DictofBlocks[Top].GetComponent<Block>().BlockTopRecursive(); // recursive call for block on top. It was more convenient to call it like this instead of calling blockpop again directly.
+                BlockPop(Top, color);
             }
         }
 
@@ -102,7 +130,7 @@ public class GameManager : MonoBehaviour
             if (!toPop.Contains(DictofBlocks[Down]))
             {
                 toPop.Add(DictofBlocks[Down]);
-                DictofBlocks[Down].GetComponent<Block>().BlockTopRecursive();
+                BlockPop(Down, color);
             }
         }
 
@@ -115,7 +143,7 @@ public class GameManager : MonoBehaviour
             if (!toPop.Contains(DictofBlocks[Left]))
             {
                 toPop.Add(DictofBlocks[Left]);
-                DictofBlocks[Left].GetComponent<Block>().BlockTopRecursive();
+                BlockPop(Left, color);
             }
         }
 
@@ -128,16 +156,16 @@ public class GameManager : MonoBehaviour
             if (!toPop.Contains(DictofBlocks[Right]))
             {
                 toPop.Add(DictofBlocks[Right]);
-                DictofBlocks[Right].GetComponent<Block>().BlockTopRecursive();
+                BlockPop(Right, color);
             }
         }
     }
-    public static void BlockChange(Tuple<int, int> coordinates, int color) // same method as blockPop. Only difference is we should add our initial block to toChange list. 
+    public static void BlockChange(Vector2Int coordinates, int color) // same method as blockPop. Only difference is we should add our initial block to toChange list. 
     {
-        var Top = new Tuple<int, int>(coordinates.Item1, coordinates.Item2 + 1);
-        var Down = new Tuple<int, int>(coordinates.Item1, coordinates.Item2 - 1);
-        var Left = new Tuple<int, int>(coordinates.Item1 - 1, coordinates.Item2);
-        var Right = new Tuple<int, int>(coordinates.Item1 + 1, coordinates.Item2);
+        var Top = new Vector2Int(coordinates.x, coordinates.y + 1);
+        var Down = new Vector2Int(coordinates.x, coordinates.y - 1);
+        var Left = new Vector2Int(coordinates.x - 1, coordinates.y);
+        var Right = new Vector2Int(coordinates.x + 1, coordinates.y);
         if (!toChange.Contains(DictofBlocks[coordinates]))
         {
             toChange.Add(DictofBlocks[coordinates]);
@@ -151,7 +179,7 @@ public class GameManager : MonoBehaviour
             if (!toChange.Contains(DictofBlocks[Top]))
             {
                 toChange.Add(DictofBlocks[Top]);
-                DictofBlocks[Top].GetComponent<Block>().BlockChangeRecursive();
+                BlockChange(Top, color);
             }
         }
 
@@ -164,7 +192,7 @@ public class GameManager : MonoBehaviour
             if (!toChange.Contains(DictofBlocks[Down]))
             {
                 toChange.Add(DictofBlocks[Down]);
-                DictofBlocks[Down].GetComponent<Block>().BlockChangeRecursive();
+                BlockChange(Down, color);
             }
         }
 
@@ -177,7 +205,7 @@ public class GameManager : MonoBehaviour
             if (!toChange.Contains(DictofBlocks[Left]))
             {
                 toChange.Add(DictofBlocks[Left]);
-                DictofBlocks[Left].GetComponent<Block>().BlockChangeRecursive();
+                BlockChange(Left, color);
             }
         }
 
@@ -190,48 +218,54 @@ public class GameManager : MonoBehaviour
             if (!toChange.Contains(DictofBlocks[Right]))
             {
                 toChange.Add(DictofBlocks[Right]);
-                DictofBlocks[Right].GetComponent<Block>().BlockChangeRecursive();
+                BlockChange(Right, color);
             }
         }
     }
     // call functions to call from block scripts. It works better in game rather than directly calling. Also that way my functions can stay private.
     public void DestroyListCall() 
     {
-        Invoke("DestroyList", 0.1f);
+        DestroyList();
     }
     public void ChangeSpritesCall()
     {
-        Invoke("ChangeSprites", 0f);
+        ChangeSprites();
     }
     public void UpdateDictCall()
     {
-        Invoke("UpdateDict", 0.1f);
+        UpdateDict();
     }
     public void UpdateGridCall()
     {
-        Invoke("UpdateGrid", 0.1f);
+        UpdateGrid();
     }
     public void PlayPopAudioCall()
     {
-        PopAudio.Play();
+        if (PopAudio != null)
+        {
+            PopAudio.Play();
+        }
     }
     public void ShuffleDeckCall()
     {
-            Invoke("ShuffleDeck", 0.1f);
+        ShuffleDeck();
     }
     public void CheckAvailableMovesCall()
     {
-        Invoke("CheckAvailableMoves", 0f);
+        CheckAvailableMoves();
     }
     public void PlayShuffleAudioCall()
     {
-        ShuffleAudio.Play();
+        if (ShuffleAudio != null)
+        {
+            ShuffleAudio.Play();
+        }
     }
     private void DestroyList() //destroy all the elements from toPop and remove them from DictofBlocks.
     {
         for (int i = 0; i < toPop.Count; i++)
         {
-            DictofBlocks.Remove(new Tuple<int, int>(toPop[i].GetComponent<Block>().x, toPop[i].GetComponent<Block>().y));
+            DictofBlocks.Remove(new Vector2Int(toPop[i].GetComponent<Block>().x, toPop[i].GetComponent<Block>().y));
             Destroy(toPop[i]);
         }
         toPop.Clear(); //clear toPop for later calls since it is a global variable.
@@ -243,7 +277,7 @@ public class GameManager : MonoBehaviour
         {
             List<GameObject> objects = new List<GameObject>();
             for(int y = 0;y < M; y++) {
-                Tuple<int, int> coordinates = new Tuple<int, int>(x, y);
+                Vector2Int coordinates = new Vector2Int(x, y);
                 if (DictofBlocks.ContainsKey(coordinates))
                 {
                     objects.Add(DictofBlocks[coordinates]); // get all the remaining blocks in column.
@@ -253,7 +287,7 @@ public class GameManager : MonoBehaviour
             int nullCounter = 0;
             for (int y = 0; y<M; y++)
             {
-                Tuple<int, int> coordinates = new Tuple<int, int>(x, y);
+                Vector2Int coordinates = new Vector2Int(x, y);
                 if (!DictofBlocks.ContainsKey(coordinates))
                 {
                     nullCounter++; // when null we need to drop the y coordinate of the blocks above it. 
@@ -261,12 +295,12 @@ public class GameManager : MonoBehaviour
                 else
                 {
                     DictofBlocks.Remove(coordinates); // remove from dict starting from bottom to reorder them. 
-                    Tuple<int, int> new_coordinates = new Tuple<int, int>(x, y-nullCounter); // add to the dict again with corrected coordinates.
+                    Vector2Int new_coordinates = new Vector2Int(x, y-nullCounter); // add to the dict again with corrected coordinates.
                     DictofBlocks.Add(new_coordinates, objects[index++]);//getting the blocks from objects list.
-                    DictofBlocks[new_coordinates].GetComponent<Block>().x = new_coordinates.Item1;
-                    DictofBlocks[new_coordinates].GetComponent<Block>().y = new_coordinates.Item2;
-                    DictofBlocks[new_coordinates].GetComponent<Block>().name = new_coordinates.Item1.ToString() + "." + new_coordinates.Item2.ToString();
-                    DictofBlocks[new_coordinates].GetComponent<SpriteRenderer>().sortingOrder = new_coordinates.Item2;
+                    DictofBlocks[new_coordinates].GetComponent<Block>().x = new_coordinates.x;
+                    DictofBlocks[new_coordinates].GetComponent<Block>().y = new_coordinates.y;
+                    DictofBlocks[new_coordinates].GetComponent<Block>().name = new_coordinates.x.ToString() + "." + new_coordinates.y.ToString();
+                    DictofBlocks[new_coordinates].GetComponent<SpriteRenderer>().sortingOrder = new_coordinates.y;
                 }
             }
             objects.Clear();// clear the list for next column.
@@ -280,7 +314,7 @@ public class GameManager : MonoBehaviour
         {
             for (int y = 0;y < M; y++)
             {
-                Tuple<int, int> coordinates = new Tuple<int, int>(x, y);
+                Vector2Int coordinates = new Vector2Int(x, y);
                 if (!DictofBlocks.ContainsKey(coordinates)){ // if there is not any blocks in given coordinates, create one.
                     int r = UnityEngine.Random.Range(0, K);
                     createBlock(startingX, startingY, x, y, r, 5);
@@ -294,7 +328,7 @@ public class GameManager : MonoBehaviour
         List<GameObject> visited = new List<GameObject>(); // to make it more efficient, when we get a group we add blocks inside of it to visited list.
         for (int x = 0; x < N; x++) { 
             for (int y = 0; y < M; y++) {
-                Tuple<int,int> coordinates = new Tuple<int, int>(x,y);
+                Vector2Int coordinates = new Vector2Int(x,y);
                 int color = DictofBlocks[coordinates].GetComponent<Block>().color;
                 if (!visited.Contains(DictofBlocks[coordinates])){ // if it is not checked before.
                     BlockChange(coordinates, color); // makes toChange list a list of grouped objects.
@@ -343,7 +377,7 @@ public class GameManager : MonoBehaviour
         {
             for (int y = 0; y < M; y++)
             {
-                Tuple<int, int> coordinates = new Tuple<int, int>(x, y);
+                Vector2Int coordinates = new Vector2Int(x, y);
                 int color = DictofBlocks[coordinates].GetComponent<Block>().color;
                 if (!visited.Contains(DictofBlocks[coordinates]))// if it is not checked before.
                 {
@@ -372,8 +406,8 @@ public class GameManager : MonoBehaviour
             int indexofy = deleteUntilRow-1; // y coordinate of blocks on top after destroying top half.
             for (int y = M-1; y >= deleteUntilRow; y--)
             {
-                Tuple<int, int> coordinates = new Tuple<int, int> (x, y);
-                colors.Add(DictofBlocks[new Tuple<int, int>(x, indexofy--)].GetComponent<Block>().color); // simultaneously get the colors of bottom half to transpose it after.
+                Vector2Int coordinates = new Vector2Int (x, y);
+                colors.Add(DictofBlocks[new Vector2Int(x, indexofy--)].GetComponent<Block>().color); // simultaneously get the colors of bottom half to transpose it after.
                 if (DictofBlocks.ContainsKey(coordinates))
                 {
                     Destroy(DictofBlocks[coordinates]); // destroy the block.
@@ -390,4 +424,5 @@ public class GameManager : MonoBehaviour
         }
         maxTogetherCount = 0; // reset maxTogetherCount
     }
+
 }
