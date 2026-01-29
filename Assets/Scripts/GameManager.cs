@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -20,6 +21,13 @@ public class GameManager : MonoBehaviour
     private static List<GameObject> toChange = new List<GameObject>(); // static list to hold elements to change (and also used for checking how much moves is available).
     public static int maxTogetherCount = 0;
     private BlockFactory _blockFactory;
+
+    [SerializeField] private float InputLockMinDuration = 0.05f;
+    [SerializeField] private float InputLockMaxDuration = 1.5f;
+    [SerializeField] private float SettleVelocityThreshold = 0.01f;
+
+    private bool _inputLocked;
+    private Coroutine _unlockRoutine;
     // Start is called before the first frame update.
     void Start()
     {
@@ -46,9 +54,23 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        BlockPop(new Vector2Int(block.x, block.y), block.color); //calls the blockpop function to make a toPop list which contains the game objects that we should destroy.
+        if (_inputLocked)
+        {
+            return;
+        }
+
+        Vector2Int clickedPos = new Vector2Int(block.x, block.y);
+        if (!DictofBlocks.ContainsKey(clickedPos) || DictofBlocks[clickedPos] != block.gameObject)
+        {
+            return;
+        }
+
+        toPop.Clear();
+
+        BlockPop(clickedPos, block.color); //calls the blockpop function to make a toPop list which contains the game objects that we should destroy.
         if (toPop.Count > 0) // If something is going to pop:
         {
+            LockInput();
             if (PopAudio != null)
             {
                 PopAudio.Play();
@@ -61,6 +83,59 @@ public class GameManager : MonoBehaviour
         }
 
         AfterBoardChanged();
+    }
+
+    private void LockInput()
+    {
+        _inputLocked = true;
+        if (_unlockRoutine != null)
+        {
+            StopCoroutine(_unlockRoutine);
+        }
+        _unlockRoutine = StartCoroutine(UnlockWhenSettled());
+    }
+
+    private IEnumerator UnlockWhenSettled()
+    {
+        float minUnlockTime = Time.time + InputLockMinDuration;
+        float timeoutTime = Time.time + InputLockMaxDuration;
+
+        while (Time.time < timeoutTime)
+        {
+            if (Time.time >= minUnlockTime && IsBoardSettled())
+            {
+                break;
+            }
+
+            yield return null;
+        }
+
+        _inputLocked = false;
+        _unlockRoutine = null;
+    }
+
+    private bool IsBoardSettled()
+    {
+        float thresholdSqr = SettleVelocityThreshold * SettleVelocityThreshold;
+        foreach (var kv in DictofBlocks)
+        {
+            var obj = kv.Value;
+            if (obj == null)
+            {
+                continue;
+            }
+
+            var rb = obj.GetComponent<Rigidbody2D>();
+            if (rb != null && rb.bodyType == RigidbodyType2D.Dynamic)
+            {
+                if (!rb.IsSleeping() && rb.velocity.sqrMagnitude > thresholdSqr)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private void AfterBoardChanged()
@@ -220,6 +295,11 @@ public class GameManager : MonoBehaviour
     }
     public static void BlockPop(Vector2Int coordinates, int color)
     {
+        if (!DictofBlocks.ContainsKey(coordinates) || !IsNormalBlock(DictofBlocks[coordinates]))
+        {
+            return;
+        }
+
         var Top = new Vector2Int(coordinates.x, coordinates.y + 1); // top of current location
         var Down = new Vector2Int(coordinates.x, coordinates.y - 1);// bottom of current location
         var Left = new Vector2Int(coordinates.x - 1, coordinates.y);// left of current location
@@ -382,7 +462,18 @@ public class GameManager : MonoBehaviour
     {
         for (int i = 0; i < toPop.Count; i++)
         {
-            DictofBlocks.Remove(new Vector2Int(toPop[i].GetComponent<Block>().x, toPop[i].GetComponent<Block>().y));
+            if (toPop[i] == null)
+            {
+                continue;
+            }
+
+            var b = toPop[i].GetComponent<Block>();
+            if (b == null)
+            {
+                continue;
+            }
+
+            DictofBlocks.Remove(new Vector2Int(b.x, b.y));
             Destroy(toPop[i]);
         }
         toPop.Clear(); //clear toPop for later calls since it is a global variable.
