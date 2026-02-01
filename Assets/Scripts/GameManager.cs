@@ -28,6 +28,7 @@ public class GameManager : MonoBehaviour
     [SerializeField] private float InputLockMinDuration = 0.05f;
     [SerializeField] private float InputLockMaxDuration = 1.5f;
     [SerializeField] private float SettleVelocityThreshold = 0.01f;
+    [SerializeField] private GameUI gameUI;
 
     private bool _inputLocked;
     private Coroutine _unlockRoutine;
@@ -64,6 +65,11 @@ public class GameManager : MonoBehaviour
         toPop.Clear();
         toChange.Clear();
         maxTogetherCount = 0;
+
+        if (gameUI == null)
+        {
+            gameUI = FindFirstObjectByType<GameUI>();
+        }
 
         if (Borders != null)
         {
@@ -106,6 +112,12 @@ public class GameManager : MonoBehaviour
             }
 
             DamageAdjacentBoxes(toPop);
+            
+            if (gameUI != null)
+            {
+                gameUI.AddScore(toPop.Count);
+            }
+            
             DestroyList();
             UpdateDict();
             UpdateGrid();
