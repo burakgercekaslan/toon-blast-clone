@@ -12,14 +12,25 @@ public class Block : MonoBehaviour
 
     private void OnMouseDown() 
     {
+        Block target = this;
+        while (target.transform.parent != null)
+        {
+            var parentBlock = target.transform.parent.GetComponent<Block>();
+            if (parentBlock == null)
+            {
+                break;
+            }
+            target = parentBlock;
+        }
+
         if (_gameManager == null)
         {
-            _gameManager = FindObjectOfType<GameManager>();
+            _gameManager = FindFirstObjectByType<GameManager>();
         }
 
         if (_gameManager != null)
         {
-            _gameManager.OnBlockClicked(this);
+            _gameManager.OnBlockClicked(target);
         }
     }
 }

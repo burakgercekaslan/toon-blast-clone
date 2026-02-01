@@ -30,8 +30,16 @@ public class GameManager : MonoBehaviour
     [SerializeField] private float SettleVelocityThreshold = 0.01f;
     [SerializeField] private GameUI gameUI;
 
+    [SerializeField] private float FallMoveSpeed = 6f;
+    [SerializeField] private float SnapDistance = 0.001f;
+    [SerializeField] private float FallAcceleration = 40f;
+    [SerializeField] private float MinFallSpeed = 1.5f;
+    [SerializeField] private float MaxFallSpeed = 20f;
+
     private bool _inputLocked;
     private Coroutine _unlockRoutine;
+    private int _lastClickFrame = -1;
+    private readonly Dictionary<int, float> _fallSpeedById = new Dictionary<int, float>();
 
     private void OnValidate()
     {
@@ -83,6 +91,300 @@ public class GameManager : MonoBehaviour
         AfterBoardChanged();
     }
 
+    private void Update()
+    {
+        if (!Input.GetMouseButtonDown(0))
+        {
+            return;
+        }
+
+        var cam = Camera.main;
+        if (cam == null)
+        {
+            return;
+        }
+
+        Vector2 world = cam.ScreenToWorldPoint(Input.mousePosition);
+        var hit = Physics2D.OverlapPoint(world);
+        if (hit == null)
+        {
+            hit = Physics2D.OverlapCircle(world, 0.05f);
+        }
+        if (hit == null)
+        {
+            return;
+        }
+
+        var block = hit.GetComponentInParent<Block>();
+        if (block == null)
+        {
+            return;
+        }
+
+        OnBlockClicked(block);
+    }
+
+    private void FixedUpdate()
+    {
+        ApplyGridPositions();
+    }
+
+    private Vector2 GetWorldPositionForCell(int x, int y)
+    {
+        int startingX = (-N + 1);
+        int startingY = (-M + 1);
+        return new Vector2((startingX + x * 2) * CellSize, (startingY + y * 2) * CellSize);
+    }
+
+    private void ApplyGridPositions()
+    {
+        if (DictofBlocks == null || DictofBlocks.Count == 0)
+        {
+            return;
+        }
+
+        float step = 2f * CellSize;
+        float dt = Time.fixedDeltaTime;
+
+        for (int x = 0; x < N; x++)
+        {
+            List<(int y, GameObject obj)> column = null;
+            List<int> boxYs = null;
+            foreach (var kv in DictofBlocks)
+            {
+                if (kv.Key.x != x)
+                {
+                    continue;
+                }
+
+                if (kv.Value == null)
+                {
+                    continue;
+                }
+
+                if (IsBox(kv.Value))
+                {
+                    if (boxYs == null)
+                    {
+                        boxYs = new List<int>();
+                    }
+                    boxYs.Add(kv.Key.y);
+                    continue;
+                }
+
+                if (!IsNormalBlock(kv.Value))
+                {
+                    continue;
+                }
+
+                if (column == null)
+                {
+                    column = new List<(int y, GameObject obj)>();
+                }
+                column.Add((kv.Key.y, kv.Value));
+            }
+
+            if (column == null)
+            {
+                continue;
+            }
+
+            column.Sort((a, b) => a.y.CompareTo(b.y));
+
+            if (boxYs != null)
+            {
+                boxYs.Sort();
+            }
+
+            int boxIndex = 0;
+            float floorY = float.NegativeInfinity;
+
+            float minY = float.NegativeInfinity;
+            for (int i = 0; i < column.Count; i++)
+            {
+                var obj = column[i].obj;
+                if (obj == null)
+                {
+                    continue;
+                }
+
+                while (boxYs != null && boxIndex < boxYs.Count && boxYs[boxIndex] < column[i].y)
+                {
+                    Vector2Int boxKey = new Vector2Int(x, boxYs[boxIndex]);
+                    if (DictofBlocks.TryGetValue(boxKey, out GameObject boxObj) && boxObj != null)
+                    {
+                        var boxComp = boxObj.GetComponent<BoxBlock>();
+                        if (boxComp != null)
+                        {
+                            if (boxComp.x != x || boxComp.y != boxKey.y)
+                            {
+                                boxComp.x = x;
+                                boxComp.y = boxKey.y;
+                            }
+
+                            Vector2 boxTarget = GetWorldPositionForCell(boxComp.x, boxComp.y);
+                            var boxRb = boxObj.GetComponent<Rigidbody2D>();
+                            if (boxRb != null)
+                            {
+                                boxRb.MovePosition(boxTarget);
+                            }
+                            else
+                            {
+                                boxObj.transform.position = boxTarget;
+                            }
+                        }
+                    }
+
+                    floorY = GetWorldPositionForCell(x, boxYs[boxIndex]).y + step;
+                    minY = floorY;
+                    boxIndex++;
+                }
+
+                var b = obj.GetComponent<Block>();
+                if (b == null)
+                {
+                    continue;
+                }
+
+                if (b.x != x || b.y != column[i].y)
+                {
+                    b.x = x;
+                    b.y = column[i].y;
+                }
+
+                Vector2 target = GetWorldPositionForCell(b.x, b.y);
+                var rb = obj.GetComponent<Rigidbody2D>();
+
+                Vector2 current = rb != null ? rb.position : (Vector2)obj.transform.position;
+                int id = obj.GetInstanceID();
+                float speed;
+                if (!_fallSpeedById.TryGetValue(id, out speed))
+                {
+                    speed = 0f;
+                }
+
+                float dy = current.y - target.y;
+                if (dy > SnapDistance)
+                {
+                    if (speed < MinFallSpeed)
+                    {
+                        speed = MinFallSpeed;
+                    }
+                    speed = Mathf.Min(speed + FallAcceleration * dt, MaxFallSpeed);
+                }
+                else
+                {
+                    speed = 0f;
+                }
+
+                float moveSpeed = Mathf.Min(speed + FallMoveSpeed, MaxFallSpeed);
+                float newY = Mathf.MoveTowards(current.y, target.y, moveSpeed * dt);
+                Vector2 next = new Vector2(target.x, newY);
+
+                if (!float.IsNegativeInfinity(floorY) && next.y < floorY)
+                {
+                    next.y = floorY;
+                }
+
+                if (!float.IsNegativeInfinity(minY) && next.y < minY)
+                {
+                    next.y = minY;
+                }
+
+                if ((next - target).sqrMagnitude <= SnapDistance * SnapDistance)
+                {
+                    next = target;
+                    speed = 0f;
+                }
+
+                if (rb != null)
+                {
+                    rb.MovePosition(next);
+                }
+                else
+                {
+                    obj.transform.position = next;
+                }
+
+                if (speed <= 0f)
+                {
+                    _fallSpeedById.Remove(id);
+                }
+                else
+                {
+                    _fallSpeedById[id] = speed;
+                }
+
+                minY = next.y + step;
+            }
+
+            while (boxYs != null && boxIndex < boxYs.Count)
+            {
+                Vector2Int boxKey = new Vector2Int(x, boxYs[boxIndex]);
+                if (DictofBlocks.TryGetValue(boxKey, out GameObject boxObj) && boxObj != null)
+                {
+                    var boxComp = boxObj.GetComponent<BoxBlock>();
+                    if (boxComp != null)
+                    {
+                        if (boxComp.x != x || boxComp.y != boxKey.y)
+                        {
+                            boxComp.x = x;
+                            boxComp.y = boxKey.y;
+                        }
+
+                        Vector2 boxTarget = GetWorldPositionForCell(boxComp.x, boxComp.y);
+                        var boxRb = boxObj.GetComponent<Rigidbody2D>();
+                        if (boxRb != null)
+                        {
+                            boxRb.MovePosition(boxTarget);
+                        }
+                        else
+                        {
+                            boxObj.transform.position = boxTarget;
+                        }
+                    }
+                }
+
+                boxIndex++;
+            }
+        }
+    }
+
+    private const float CellSize = 0.225f;
+    private const float PositionTolerance = 0.1f;
+    private const float VelocityThreshold = 0.5f;
+
+    private static void CleanupNullEntries()
+    {
+        if (DictofBlocks == null || DictofBlocks.Count == 0)
+        {
+            return;
+        }
+
+        List<Vector2Int> toRemove = null;
+        foreach (var kv in DictofBlocks)
+        {
+            if (kv.Value == null)
+            {
+                if (toRemove == null)
+                {
+                    toRemove = new List<Vector2Int>();
+                }
+                toRemove.Add(kv.Key);
+            }
+        }
+
+        if (toRemove == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < toRemove.Count; i++)
+        {
+            DictofBlocks.Remove(toRemove[i]);
+        }
+    }
+
     public void OnBlockClicked(Block block)
     {
         if (block == null)
@@ -90,7 +392,66 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        BlockPop(new Vector2Int(block.x, block.y), block.color); //calls the blockpop function to make a toPop list which contains the game objects that we should destroy.
+        if (_inputLocked)
+        {
+            return;
+        }
+
+        if (_lastClickFrame == Time.frameCount)
+        {
+            return;
+        }
+
+        _inputLocked = true;
+        _lastClickFrame = Time.frameCount;
+
+        try
+        {
+
+        CleanupNullEntries();
+
+        Block resolvedBlock = null;
+
+        Vector2Int clickedPos = new Vector2Int(block.x, block.y);
+        if (DictofBlocks.TryGetValue(clickedPos, out GameObject byCoord) && byCoord != null)
+        {
+            resolvedBlock = byCoord.GetComponent<Block>();
+        }
+
+        if (resolvedBlock == null)
+        {
+            foreach (var kv in DictofBlocks)
+            {
+                if (kv.Value == null)
+                {
+                    continue;
+                }
+
+                if (kv.Value == block.gameObject)
+                {
+                    resolvedBlock = kv.Value.GetComponent<Block>();
+                    break;
+                }
+
+                if (block.transform != null && kv.Value.transform != null && block.transform.IsChildOf(kv.Value.transform))
+                {
+                    resolvedBlock = kv.Value.GetComponent<Block>();
+                    break;
+                }
+            }
+        }
+
+        if (resolvedBlock == null)
+        {
+            return;
+        }
+
+        clickedPos = new Vector2Int(resolvedBlock.x, resolvedBlock.y);
+
+        // Clear toPop at START to prevent race conditions from rapid clicks
+        toPop.Clear();
+        
+        BlockPop(clickedPos, resolvedBlock.color);
         if (toPop.Count > 0) // If something is going to pop:
         {
             if (PopAudio != null)
@@ -111,6 +472,11 @@ public class GameManager : MonoBehaviour
         }
 
         AfterBoardChanged();
+        }
+        finally
+        {
+            _inputLocked = false;
+        }
     }
 
     private void LockInput()
@@ -305,6 +671,41 @@ public class GameManager : MonoBehaviour
         return obj != null && obj.GetComponent<Block>() != null;
     }
 
+    private bool IsBlockStationary(GameObject obj)
+    {
+        if (obj == null) return false;
+        
+        var block = obj.GetComponent<Block>();
+        if (block == null) return false;
+        
+        var rb = obj.GetComponent<Rigidbody2D>();
+        
+        // If no Rigidbody2D, treat as stationary (movement is handled by transform/parenting, not physics)
+        if (rb == null)
+        {
+            return true;
+        }
+        
+        // Static rigidbodies are always stationary
+        if (rb.bodyType != RigidbodyType2D.Dynamic)
+        {
+            return true;
+        }
+
+        if (rb.IsSleeping())
+        {
+            return true;
+        }
+        
+        // For dynamic rigidbodies, check velocity
+        if (rb.linearVelocity.sqrMagnitude > VelocityThreshold * VelocityThreshold)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     private void DamageAdjacentBoxes(List<GameObject> poppedBlocks)
     {
         if (poppedBlocks == null || poppedBlocks.Count == 0)
@@ -355,62 +756,84 @@ public class GameManager : MonoBehaviour
             box.ApplyDamage(1);
         }
     }
-    public static void BlockPop(Vector2Int coordinates, int color)
+    public void BlockPop(Vector2Int coordinates, int color)
     {
+        // Validate current block exists, is valid, and is stationary
+        if (!DictofBlocks.TryGetValue(coordinates, out GameObject currentBlock) || currentBlock == null || !IsNormalBlock(currentBlock))
+        {
+            return;
+        }
+
         var Top = new Vector2Int(coordinates.x, coordinates.y + 1); // top of current location
         var Down = new Vector2Int(coordinates.x, coordinates.y - 1);// bottom of current location
         var Left = new Vector2Int(coordinates.x - 1, coordinates.y);// left of current location
         var Right = new Vector2Int(coordinates.x + 1, coordinates.y);// right of current location
 
-        if (DictofBlocks.ContainsKey(Top) && IsNormalBlock(DictofBlocks[Top]) && color == DictofBlocks[Top].GetComponent<Block>().color)//checks if this blocks exist first and then check if colors match or not.
+        if (DictofBlocks.TryGetValue(Top, out GameObject topBlock) && topBlock != null && IsNormalBlock(topBlock))//checks if this blocks exist first and then check if colors match or not.
         {
-            if (!toPop.Contains(DictofBlocks[coordinates]))
+            var topBlockComp = topBlock.GetComponent<Block>();
+            if (topBlockComp != null && color == topBlockComp.color)
             {
-                toPop.Add(DictofBlocks[coordinates]); // if atleast one match then we can add our initial block otherwise we should not pop it since it is only 1 block.
-            }
-            if (!toPop.Contains(DictofBlocks[Top])) //for not adding another block second time while searching simultaneously.
-            {
-                toPop.Add(DictofBlocks[Top]);
-                BlockPop(Top, color);
+                if (!toPop.Contains(currentBlock))
+                {
+                    toPop.Add(currentBlock); // if atleast one match then we can add our initial block otherwise we should not pop it since it is only 1 block.
+                }
+                if (!toPop.Contains(topBlock)) //for not adding another block second time while searching simultaneously.
+                {
+                    toPop.Add(topBlock);
+                    BlockPop(Top, color);
+                }
             }
         }
 
-        if (DictofBlocks.ContainsKey(Down) && IsNormalBlock(DictofBlocks[Down]) && color == DictofBlocks[Down].GetComponent<Block>().color) // same process for other directions.
+        if (DictofBlocks.TryGetValue(Down, out GameObject downBlock) && downBlock != null && IsNormalBlock(downBlock)) // same process for other directions.
         {
-            if (!toPop.Contains(DictofBlocks[coordinates]))
+            var downBlockComp = downBlock.GetComponent<Block>();
+            if (downBlockComp != null && color == downBlockComp.color)
             {
-                toPop.Add(DictofBlocks[coordinates]);
-            }
-            if (!toPop.Contains(DictofBlocks[Down]))
-            {
-                toPop.Add(DictofBlocks[Down]);
-                BlockPop(Down, color);
+                if (!toPop.Contains(currentBlock))
+                {
+                    toPop.Add(currentBlock);
+                }
+                if (!toPop.Contains(downBlock))
+                {
+                    toPop.Add(downBlock);
+                    BlockPop(Down, color);
+                }
             }
         }
 
-        if (DictofBlocks.ContainsKey(Left) && IsNormalBlock(DictofBlocks[Left]) && color == DictofBlocks[Left].GetComponent<Block>().color)
+        if (DictofBlocks.TryGetValue(Left, out GameObject leftBlock) && leftBlock != null && IsNormalBlock(leftBlock))
         {
-            if (!toPop.Contains(DictofBlocks[coordinates]))
+            var leftBlockComp = leftBlock.GetComponent<Block>();
+            if (leftBlockComp != null && color == leftBlockComp.color)
             {
-                toPop.Add(DictofBlocks[coordinates]);
-            }
-            if (!toPop.Contains(DictofBlocks[Left]))
-            {
-                toPop.Add(DictofBlocks[Left]);
-                BlockPop(Left, color);
+                if (!toPop.Contains(currentBlock))
+                {
+                    toPop.Add(currentBlock);
+                }
+                if (!toPop.Contains(leftBlock))
+                {
+                    toPop.Add(leftBlock);
+                    BlockPop(Left, color);
+                }
             }
         }
 
-        if (DictofBlocks.ContainsKey(Right) && IsNormalBlock(DictofBlocks[Right]) && color == DictofBlocks[Right].GetComponent<Block>().color)
+        if (DictofBlocks.TryGetValue(Right, out GameObject rightBlock) && rightBlock != null && IsNormalBlock(rightBlock))
         {
-            if (!toPop.Contains(DictofBlocks[coordinates]))
+            var rightBlockComp = rightBlock.GetComponent<Block>();
+            if (rightBlockComp != null && color == rightBlockComp.color)
             {
-                toPop.Add(DictofBlocks[coordinates]);
-            }
-            if (!toPop.Contains(DictofBlocks[Right]))
-            {
-                toPop.Add(DictofBlocks[Right]);
-                BlockPop(Right, color);
+                if (!toPop.Contains(currentBlock))
+                {
+                    toPop.Add(currentBlock);
+                }
+                if (!toPop.Contains(rightBlock))
+                {
+                    toPop.Add(rightBlock);
+                    BlockPop(Right, color);
+                }
             }
         }
     }
@@ -519,8 +942,18 @@ public class GameManager : MonoBehaviour
     {
         for (int i = 0; i < toPop.Count; i++)
         {
-            DictofBlocks.Remove(new Vector2Int(toPop[i].GetComponent<Block>().x, toPop[i].GetComponent<Block>().y));
-            Destroy(toPop[i]);
+            var obj = toPop[i];
+            if (obj == null)
+            {
+                continue;
+            }
+            
+            var blockComp = obj.GetComponent<Block>();
+            if (blockComp != null)
+            {
+                DictofBlocks.Remove(new Vector2Int(blockComp.x, blockComp.y));
+            }
+            Destroy(obj);
         }
         toPop.Clear(); //clear toPop for later calls since it is a global variable.
 
@@ -589,6 +1022,7 @@ public class GameManager : MonoBehaviour
     }
     private void UpdateGrid() // create additional blocks if there are some gaps in the grid.
     {
+        CleanupNullEntries();
         int startingX = (-N + 1);
         int startingY = (-M + 1);
         for (int x = 0; x < N; x++)
@@ -597,7 +1031,7 @@ public class GameManager : MonoBehaviour
             for (int y = M - 1; y >= 0; y--)
             {
                 Vector2Int c = new Vector2Int(x, y);
-                if (DictofBlocks.ContainsKey(c) && IsBox(DictofBlocks[c]))
+                if (DictofBlocks.TryGetValue(c, out GameObject obj) && obj != null && IsBox(obj))
                 {
                     highestBoxY = y;
                     break;
@@ -608,7 +1042,7 @@ public class GameManager : MonoBehaviour
             for (int y = spawnStartY; y < M; y++)
             {
                 Vector2Int coordinates = new Vector2Int(x, y);
-                if (!DictofBlocks.ContainsKey(coordinates))
+                if (!DictofBlocks.TryGetValue(coordinates, out GameObject existing) || existing == null)
                 {
                     int r = UnityEngine.Random.Range(0, K);
                     createBlock(startingX, startingY, x, y, r, 5);

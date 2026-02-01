@@ -38,7 +38,7 @@ public class GameUI : MonoBehaviour
             scoreText.fontSize = 78;
             scoreText.fontStyle = FontStyles.Bold;
             scoreText.alignment = TextAlignmentOptions.BottomLeft;
-            scoreText.enableWordWrapping = false;
+            scoreText.textWrappingMode = TextWrappingModes.NoWrap;
             scoreText.overflowMode = TextOverflowModes.Overflow;
         }
 
@@ -53,7 +53,7 @@ public class GameUI : MonoBehaviour
             timerText.fontSize = 78;
             timerText.fontStyle = FontStyles.Bold;
             timerText.alignment = TextAlignmentOptions.Center;
-            timerText.enableWordWrapping = false;
+            timerText.textWrappingMode = TextWrappingModes.NoWrap;
             timerText.overflowMode = TextOverflowModes.Overflow;
         }
     }

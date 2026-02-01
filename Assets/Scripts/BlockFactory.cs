@@ -52,11 +52,22 @@ public class BlockFactory
             renderer.sortingOrder = y;
         }
 
+        var rb = obj.GetComponent<Rigidbody2D>();
+        if (rb == null)
+        {
+            rb = obj.AddComponent<Rigidbody2D>();
+        }
+        rb.bodyType = RigidbodyType2D.Kinematic;
+        rb.gravityScale = 0f;
+        rb.constraints = RigidbodyConstraints2D.FreezeRotation | RigidbodyConstraints2D.FreezePositionX;
+
         if (obj.GetComponent<BoxCollider2D>() == null)
         {
             obj.AddComponent<BoxCollider2D>();
         }
-        obj.GetComponentInChildren<BoxCollider2D>().size = ColliderSize;
+        var collider = obj.GetComponent<BoxCollider2D>();
+        collider.size = ColliderSize;
+        collider.isTrigger = true;
 
         if (_parent != null)
         {
@@ -89,7 +100,7 @@ public class BlockFactory
 
         var obj = Object.Instantiate(
             _boxPrefab,
-            new Vector2((startingX + x * 2) * CellSize, (startingY + y * 2) * CellSize + CellSize + droppingHeight),
+            new Vector2((startingX + x * 2) * CellSize, (startingY + y * 2) * CellSize + droppingHeight),
             Quaternion.identity);
 
         var renderer = obj.GetComponent<SpriteRenderer>();
@@ -99,18 +110,21 @@ public class BlockFactory
         }
 
         var rb = obj.GetComponent<Rigidbody2D>();
-        if (rb != null)
+        if (rb == null)
         {
-            rb.bodyType = RigidbodyType2D.Static;
-            rb.gravityScale = 0f;
-            rb.constraints = RigidbodyConstraints2D.FreezeAll;
+            rb = obj.AddComponent<Rigidbody2D>();
         }
+        rb.bodyType = RigidbodyType2D.Kinematic;
+        rb.gravityScale = 0f;
+        rb.constraints = RigidbodyConstraints2D.FreezeAll;
 
         if (obj.GetComponent<BoxCollider2D>() == null)
         {
             obj.AddComponent<BoxCollider2D>();
         }
-        obj.GetComponentInChildren<BoxCollider2D>().size = ColliderSize;
+        var boxCollider = obj.GetComponent<BoxCollider2D>();
+        boxCollider.size = ColliderSize;
+        boxCollider.isTrigger = true;
 
         if (_parent != null)
         {

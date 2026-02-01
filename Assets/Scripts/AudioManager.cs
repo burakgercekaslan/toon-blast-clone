@@ -73,7 +73,7 @@ public class AudioManager : MonoBehaviour
         }
         
         // Apply to all AudioSources in the scene
-        AudioSource[] allAudioSources = FindObjectsOfType<AudioSource>();
+        AudioSource[] allAudioSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsSortMode.None);
         foreach (AudioSource source in allAudioSources)
         {
             if (source != musicSource && source != sfxSource)
@@ -103,7 +103,7 @@ public class AudioManager : MonoBehaviour
         }
         
         // Apply to all looping AudioSources
-        AudioSource[] allAudioSources = FindObjectsOfType<AudioSource>();
+        AudioSource[] allAudioSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsSortMode.None);
         foreach (AudioSource source in allAudioSources)
         {
                 if (source != musicSource && source.loop)
@@ -125,7 +125,7 @@ public class AudioManager : MonoBehaviour
         }
         
         // Apply to all non-looping AudioSources
-        AudioSource[] allAudioSources = FindObjectsOfType<AudioSource>();
+        AudioSource[] allAudioSources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsSortMode.None);
         foreach (AudioSource source in allAudioSources)
         {
             if (source != sfxSource && !source.loop)
