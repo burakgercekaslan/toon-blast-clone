@@ -58,6 +58,7 @@ public class GameManager : MonoBehaviour
             SelectedBoxColumns = resized;
         }
     }
+
     // Start is called before the first frame update.
     void Start()
     {
@@ -89,23 +90,9 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        if (_inputLocked)
-        {
-            return;
-        }
-
-        Vector2Int clickedPos = new Vector2Int(block.x, block.y);
-        if (!DictofBlocks.ContainsKey(clickedPos) || DictofBlocks[clickedPos] != block.gameObject)
-        {
-            return;
-        }
-
-        toPop.Clear();
-
-        BlockPop(clickedPos, block.color); //calls the blockpop function to make a toPop list which contains the game objects that we should destroy.
+        BlockPop(new Vector2Int(block.x, block.y), block.color); //calls the blockpop function to make a toPop list which contains the game objects that we should destroy.
         if (toPop.Count > 0) // If something is going to pop:
         {
-            LockInput();
             if (PopAudio != null)
             {
                 PopAudio.Play();
@@ -370,11 +357,6 @@ public class GameManager : MonoBehaviour
     }
     public static void BlockPop(Vector2Int coordinates, int color)
     {
-        if (!DictofBlocks.ContainsKey(coordinates) || !IsNormalBlock(DictofBlocks[coordinates]))
-        {
-            return;
-        }
-
         var Top = new Vector2Int(coordinates.x, coordinates.y + 1); // top of current location
         var Down = new Vector2Int(coordinates.x, coordinates.y - 1);// bottom of current location
         var Left = new Vector2Int(coordinates.x - 1, coordinates.y);// left of current location
@@ -537,18 +519,7 @@ public class GameManager : MonoBehaviour
     {
         for (int i = 0; i < toPop.Count; i++)
         {
-            if (toPop[i] == null)
-            {
-                continue;
-            }
-
-            var b = toPop[i].GetComponent<Block>();
-            if (b == null)
-            {
-                continue;
-            }
-
-            DictofBlocks.Remove(new Vector2Int(b.x, b.y));
+            DictofBlocks.Remove(new Vector2Int(toPop[i].GetComponent<Block>().x, toPop[i].GetComponent<Block>().y));
             Destroy(toPop[i]);
         }
         toPop.Clear(); //clear toPop for later calls since it is a global variable.
