@@ -157,7 +157,7 @@ public class GameManager : MonoBehaviour
             var rb = obj.GetComponent<Rigidbody2D>();
             if (rb != null && rb.bodyType == RigidbodyType2D.Dynamic)
             {
-                if (!rb.IsSleeping() && rb.velocity.sqrMagnitude > thresholdSqr)
+                if (!rb.IsSleeping() && rb.linearVelocity.sqrMagnitude > thresholdSqr)
                 {
                     return false;
                 }
